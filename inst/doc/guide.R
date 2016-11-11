@@ -48,11 +48,11 @@ lob <- orderBook(lob.data$events,
 # visualise the order book liquidity.
 plotCurrentDepth(lob, volume.scale=10^-8)
 
-## ---- fig.cap="a"-------------------------------------------------------------
-# plot all lob.data price level volume between $247 and $245 and overlay the 
+## -----------------------------------------------------------------------------
+# plot all lob.data price level volume between $233 and $245 and overlay the 
 # market midprice.
 spread <- getSpread(lob.data$depth.summary)
-plotPriceLevels(lob.data$depth, spread, price.from=227, price.to=245, 
+plotPriceLevels(lob.data$depth, spread, price.from=233, price.to=245, 
     volume.scale=10^-8, col.bias=0.25, show.mp=T)
 
 ## -----------------------------------------------------------------------------
@@ -90,16 +90,17 @@ plotPriceLevels(lob.data$depth, price.from=235.65, price.to=237.65,
     volume.from=3.63, volume.to=3.83)
 
 ## -----------------------------------------------------------------------------
-plotVolumePercentiles(lob.data$depth.summary, volume.scale=10^-8, perc.line=F, start.time=as.POSIXct("2015-05-01 01:00:00.000", tz="UTC"),
+plotVolumePercentiles(lob.data$depth.summary, volume.scale=10^-8, perc.line=F, 
+    start.time=as.POSIXct("2015-05-01 01:00:00.000", tz="UTC"),
     end.time=as.POSIXct("2015-05-01 04:00:00.000", tz="UTC"))
 
 ## -----------------------------------------------------------------------------
-# visualise 15 minutes of order book liquidity.
+# visualise 5 minutes of order book liquidity.
 # data will be aggregated to second-by-second resolution.
 plotVolumePercentiles(lob.data$depth.summary,
-start.time=as.POSIXct("2015-05-01 04:30:00.000", tz="UTC"),
-end.time=as.POSIXct("2015-05-01 04:35:00.000", tz="UTC"),
-volume.scale=10^-8)
+    start.time=as.POSIXct("2015-05-01 04:30:00.000", tz="UTC"),
+    end.time=as.POSIXct("2015-05-01 04:35:00.000", tz="UTC"),
+    volume.scale=10^-8)
 
 ## -----------------------------------------------------------------------------
 plotVolumeMap(lob.data$events, volume.scale=10^-8, log.scale = T)
@@ -108,7 +109,8 @@ plotVolumeMap(lob.data$events, volume.scale=10^-8, log.scale = T)
 plotVolumeMap(lob.data$events, volume.scale=10^-8, volume.from=3.5, volume.to=4)
 
 ## -----------------------------------------------------------------------------
-plotVolumeMap(lob.data$events, volume.scale=10^-8, volume.from=8.59, volume.to=8.72)
+plotVolumeMap(lob.data$events, volume.scale=10^-8, volume.from=8.59, 
+    volume.to=8.72)
 
 ## -----------------------------------------------------------------------------
 tp <- as.POSIXct("2015-05-01 04:25:15.342", tz="UTC")

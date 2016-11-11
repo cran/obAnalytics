@@ -60,10 +60,8 @@ priceLevelVolume <- function(events) {
         side=volume.deltas$direction)
   }
     
-  logger("calculating priceLevelVolume from bid event deltas...")
   bids <- events[events$direction == "bid", ]
   depth.bid <- directionalPriceLevelVolume(bids)
-  logger("calculating priceLevelVolume from ask event deltas...")
   asks <- events[events$direction == "ask", ]
   depth.ask <- directionalPriceLevelVolume(asks)
   depth.data <- rbind(depth.bid, depth.ask)
@@ -137,16 +135,12 @@ priceLevelVolume <- function(events) {
 filterDepth <- function(d, from, to) {
 
   # 1. get all active price levels before start of range.  
-  logger(paste("filterDepth between", from, "and", to))
   pre <- d[d$timestamp <= from, ]
-  logger(paste("got", nrow(pre), "previous deltas"))
   pre <- pre[order(pre$price, pre$timestamp), ]
-  logger(paste("ordered", nrow(pre), "previous deltas"))
 
   # last update for each price level <= from. this becomes the starting point 
   # for all updates within the range.
   pre <- pre[!duplicated(pre$price, fromLast=T) & pre$volume > 0, ] 
-  logger(paste("extracted", nrow(pre), "previously updated deltas"))
 
   # clamp range (reset timestamp to from if price level active before start of
   # range.
@@ -154,14 +148,11 @@ filterDepth <- function(d, from, to) {
     pre$timestamp <- as.POSIXct(sapply(pre$timestamp, function(r) {
       max(from, r)
     }), origin="1970-01-01", tz="UTC") 
-    logger("clamped range.")
   }
 
   # 2. add all volume change within the range.
   mid <- d[d$timestamp > from & d$timestamp < to, ]
-  logger(paste("got", nrow(mid), "in range deltas"))
   range <- rbind(pre, mid)
-  logger(paste("appended range now contains", nrow(range), "deltas"))
 
   # 3. at the end of the range, set all price level volume to 0.
   open.ends <- data.frame(timestamp=to,
@@ -171,8 +162,6 @@ filterDepth <- function(d, from, to) {
   # combine pre, mid and open.ends. ensure it is in order.  
   range <- rbind(range, open.ends)
   range <- range[order(range$price, range$timestamp), ]
-  logger(paste("closed range. depth filtering resulted in", 
-      length(unique(range$price)), "price levels."))
 
   range
 }
@@ -186,39 +175,35 @@ filterDepth <- function(d, from, to) {
 ##'
 ##' \preformatted{
 ##'   [timestamp,
-##'    best.bid.price, best.bid.vol,
-##'    bid.vol25:500bps, bid.vwap25:500bps,
-##'    best.ask.price, best.ask.vol,
-##'    ask.vol25:500bps, ask.vwap25:500bps]
+##'    best.bid.price, best.bid.vol, bid.vol25:500bps,
+##'    best.ask.price, best.ask.vol, ask.vol25:500bps,]
 ##'
 ##' where timestamp = time of order book state change
 ##'  best.bid.price = current best bid price
 ##'  best.bid.vol = current amount of volume at the best bid
 ##'  bid.vol25:500bps = amount of volume available > -25bps and <= best bid
 ##'                     until > 500bps <= 475bps.
-##'  bid.vwap25:500bps = VWAP > -25bps and <= best bid
-##'                     until > 500bps <= 475bps.
 ##'    ... the same pattern is then repeated for the ask side.
 ##' }
 ##'
 ##' @param depth Price level cumulative depth calculated by priceLevelVolume()
+##' @param bps Width (in BPS) for each interval/bin
+##' @param bins Number of intervals +- the best bid/ask to aggregate.
 ##' @return data.frame containing order book summary statistics.
 ##' @author phil
 ##' @keywords internal
-depthMetrics <- function(depth) {
-  pb <- txtProgressBar(1, nrow(depth), 0, style=3)
-  pctNames <- function(pct.name) paste0(pct.name, seq(from=25, to=500, by=25), 
-      "bps")
+depthMetrics <- function(depth, bps=25, bins=20) {
+  pctNames <- function(name) paste0(name, seq(bps, bps*bins, bps), "bps")
   ordered.depth <- depth[order(depth$timestamp), ]
-  ordered.depth$price <- as.integer(round(100 * ordered.depth$price))
+  ordered.depth$price <- as.integer(round(100*ordered.depth$price))
   depth.matrix <- cbind(ordered.depth$price, ordered.depth$volume, 
       ifelse(ordered.depth$side == "bid", 0, 1))
-  metrics <- matrix(0, ncol=84, nrow=nrow(ordered.depth), 
+
+  metrics <- matrix(0, ncol=2*(2+bins), nrow=nrow(ordered.depth),
       dimnames=list(1:nrow(ordered.depth),
-                    c("best.bid.price", "best.bid.vol", 
-                    pctNames("bid.vol"), pctNames("bid.vwap"),
-                    "best.ask.price", "best.ask.vol", 
-                    pctNames("ask.vol"), pctNames("ask.vwap"))))
+          c("best.bid.price", "best.bid.vol", pctNames("bid.vol"),
+            "best.ask.price", "best.ask.vol", pctNames("ask.vol"))))
+
   # the volume state for all price level depths. (updated in loop)
   asks.state <- integer(length=1000000)
   asks.state[1000000] <- 1 # trick (so there is an initial best ask)
@@ -251,15 +236,20 @@ depthMetrics <- function(depth) {
             best.ask.vol <- asks.state[best.ask]
           }
         }
-        price.range <- best.ask:round(1.05 * best.ask)
+        # + bps*bins range
+        price.range <- best.ask:round((1+bps*bins*0.0001)*best.ask)
         volume.range <- asks.state[price.range]
-        breaks <- ceiling(cumsum(rep(length(price.range) / 20, 20)))
-        metrics[i, 43] <- best.ask
-        metrics[i, 44] <- best.ask.vol
-        metrics[i, 45:64] <- intervalSumBreaks(volume.range, breaks)
-        metrics[i, 65:84] <- intervalVwap(price.range, volume.range, breaks)
+
+        #levels = length(price.range)
+        #width = levels/bins   
+        #breaks <- ceiling(seq(width, levels, by=width))
+        breaks <- ceiling(cumsum(rep(length(price.range)/bins, bins))) 
+
+        metrics[i, bins+3] <- best.ask
+        metrics[i, bins+4] <- best.ask.vol
+        metrics[i, (bins+5):(2*(2+bins))] <- intervalSumBreaks(volume.range, breaks)
         # copy last bid data (no need to re-calculate it)
-        if(i > 1) metrics[i, 1:42] <- metrics[i - 1, 1:42]
+        if(i > 1) metrics[i, 1:(2+bins)] <- metrics[i - 1, 1:(2+bins)] 
       } else {
         # copy last data (no change)
         if(i > 1) metrics[i, ] <- metrics[i - 1, ]
@@ -279,26 +269,29 @@ depthMetrics <- function(depth) {
             best.bid.vol <- bids.state[best.bid]
           }
         }
-        price.range <- best.bid:round(0.95 * best.bid)
+        price.range <- best.bid:round((1-bps*bins*0.0001)*best.bid) 
         volume.range <- bids.state[price.range]
-        breaks <- ceiling(cumsum(rep(length(price.range) / 20, 20)))
+
+        #levels = length(price.range)
+        #width = levels/bins
+        #breaks <- ceiling(seq(width, levels, by=width))
+        breaks <- ceiling(cumsum(rep(length(price.range)/bins, bins)))
+
         metrics[i, 1] <- best.bid
         metrics[i, 2] <- best.bid.vol
-        metrics[i, 3:22] <- intervalSumBreaks(volume.range, breaks)
-        metrics[i, 23:42] <- intervalVwap(price.range, volume.range, breaks)
+        metrics[i, 3:(2+bins)] <- intervalSumBreaks(volume.range, breaks)
         # copy last ask data (no need to re-calculate it)
-        if(i > 1) metrics[i, 43:84] <- metrics[i - 1, 43:84]
+        if(i > 1) metrics[i, (bins+3):(2*(2+bins))] <- metrics[i - 1, (bins+3):(2*(2+bins))]
       } else {
         # copy last data (no change)
         if(i > 1) metrics[i, ] <- metrics[i - 1, ]
       }
     }
-    setTxtProgressBar(pb, i)
   }
 
   # back into $  
   res <- cbind(timestamp=ordered.depth$timestamp, data.frame(metrics))
-  keys <- c("best.bid.price", "best.ask.price", pctNames("bid.vwap"), pctNames("ask.vwap"))
+  keys <- c("best.bid.price", "best.ask.price")
   res[, keys] <- round(0.01*res[, keys], 2)
 
   res
